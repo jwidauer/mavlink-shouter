@@ -1,0 +1,9 @@
+definitions: tests/fixtures/definitions.xml
+endpoints:
+  - name: udp
+    kind:
+      Udp:
+        address: 127.0.0.1:14550
+  - name: serial
+    kind:
+      Serial:

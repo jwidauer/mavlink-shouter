@@ -5,12 +5,13 @@ use simplelog::{ColorChoice, Config, LevelFilter, TermLogger, TerminalMode};
 use std::path;
 use std::sync::Arc;
 
+use endpoint::Endpoint;
+
 mod config;
-pub(crate) mod definitions;
-pub(crate) mod endpoints;
+mod endpoint;
 mod log_error;
-pub(crate) mod mavlink;
-pub(crate) mod router;
+mod mavlink;
+mod router;
 
 #[derive(Debug, Parser)]
 #[command(author, version, about, long_about = None)]
@@ -33,11 +34,10 @@ async fn main() -> Result<()> {
     let settings = config::Settings::load(&args.config)?;
 
     // Load the message offsets from the XML definitions
-    let deserializer =
-        definitions::try_get_offsets_from_xml(settings.definitions).map(|offsets| {
-            info!("Found {} targeted messages.", offsets.len());
-            Arc::new(mavlink::Deserializer::new(offsets))
-        })?;
+    let deserializer = mavlink::definitions::try_get_offsets_from_xml(settings.definitions)
+        .inspect(|offsets| info!("Found {} targeted messages.", offsets.len()))
+        .map(mavlink::Deserializer::new)
+        .map(Arc::new)?;
 
     let (tx, mut router) = router::Router::new();
 
@@ -45,30 +45,15 @@ async fn main() -> Result<()> {
     let endpoints = settings
         .endpoints
         .into_iter()
-        .map(|endpoint| {
-            let transmitter = match endpoint.kind {
-                config::EndpointKind::Udp(settings) => {
-                    endpoints::udp::UdpTransmitter::new(settings.address)
-                        .map_err(|e| anyhow::anyhow!("Failed to create UDP transmitter: {}", e))
-                        .unwrap()
-                }
-                config::EndpointKind::Serial => {
-                    unimplemented!("Serial endpoints are not yet supported.")
-                }
-            };
-
-            let (endpoint_tx, endpoint) = endpoints::Endpoint::new(
-                endpoint.name,
-                transmitter,
-                tx.clone(),
-                deserializer.clone(),
-            );
+        .map(|settings| {
+            let (endpoint_tx, endpoint) =
+                Endpoint::from_settings(settings, tx.clone(), deserializer.clone())?;
 
             router.add_endpoint(endpoint_tx);
 
-            endpoint
+            Ok(endpoint)
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, std::io::Error>>()?;
 
     info!("Starting endpoints...");
     for endpoint in endpoints {

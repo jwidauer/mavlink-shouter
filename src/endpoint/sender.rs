@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 #[derive(Debug, thiserror::Error)]
 enum SenderError {
     #[error("[{0}] Failed to send message: {1}")]
-    Send(Name, std::io::Error),
+    Send(Name, #[source] std::io::Error),
 }
 
 pub struct Sender {

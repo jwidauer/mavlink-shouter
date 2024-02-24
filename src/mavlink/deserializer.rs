@@ -1,29 +1,9 @@
-use crate::definitions::Offsets;
+use super::definitions::Offsets;
+use super::{Message, HEADER_LEN, MAX_PACKET_LEN, MIN_PACKET_LEN, PACKET_MAGIC};
 use anyhow::Result;
 use log::debug;
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 use thiserror::Error;
-
-pub const MIN_PACKET_LEN: usize = 12;
-pub const MAX_PACKET_LEN: usize = 280;
-pub const PACKET_MAGIC: u8 = 0xFD;
-pub const HEADER_LEN: usize = 10;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SysCompId(u8, u8);
-
-impl From<(u8, u8)> for SysCompId {
-    fn from((sys_id, comp_id): (u8, u8)) -> Self {
-        Self(sys_id, comp_id)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Message {
-    pub sender: SysCompId,
-    pub target: SysCompId,
-    pub data: Arc<[u8]>,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Error)]
 pub enum DeserializationError {

@@ -9,12 +9,12 @@ use tokio::sync::mpsc;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ReceiverError {
-    #[error("[{0}] Failed to receive message: {1}")]
-    Receive(Name, std::io::Error),
-    #[error("[{0}] Failed to deserialize message: {1}")]
-    Deserialization(Name, mavlink::DeserializationError),
-    #[error("[{0}] Failed to send message to router: {1}")]
-    SendToRouter(Name, mpsc::error::SendError<mavlink::Message>),
+    #[error("[{0}] Failed to receive message")]
+    Receive(Name, #[source] std::io::Error),
+    #[error("[{0}] Failed to deserialize message")]
+    Deserialization(Name, #[source] mavlink::DeserializationError),
+    #[error("[{0}] Failed to send message to router")]
+    SendToRouter(Name, #[source] mpsc::error::SendError<mavlink::Message>),
 }
 
 pub struct Receiver {
@@ -52,9 +52,12 @@ impl Receiver {
         let msg = &buf[..amt];
         self.deserializer
             .deserialize(msg)
-            .map(|msg| {
-                self.discovered_targets.insert_or_update(msg.sender, addr);
-                msg
+            .inspect(|msg| match msg.sender.is_valid_sender() {
+                true => self.discovered_targets.insert_or_update(msg.sender, addr),
+                false => error!(
+                    "[{}] Received message from '{}' with invalid sender id",
+                    self.name, addr
+                ),
             })
             .map_err(|e| ReceiverError::Deserialization(self.name.clone(), e))
     }
@@ -70,6 +73,7 @@ impl Receiver {
                     .log_error()
                     .is_none()
                 {
+                    // If the router is gone, we should stop receiving messages
                     return;
                 }
             }

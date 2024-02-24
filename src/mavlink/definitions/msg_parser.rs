@@ -1,38 +1,16 @@
-use anyhow::{bail, Context, Result};
-use log::{debug, info};
 use quick_xml::{
     events::{BytesStart, Event},
     reader::Reader,
 };
-use std::{
-    collections::{HashMap, HashSet},
-    num::NonZeroUsize,
-    path::PathBuf,
-};
+use std::num::NonZeroUsize;
 use thiserror::Error;
 
-#[derive(Debug, Error, PartialEq)]
-pub enum ParseError {
-    #[error("The file '{0}' does not exist.")]
-    FileDoesNotExist(PathBuf),
-    #[error("The path '{0}' is not a file.")]
-    NotAFile(PathBuf),
-    #[error("A message definition in '{0}' does not have an ID.")]
-    MessageWithoutId(PathBuf),
-    #[error("Failed to get the offsets for a message definition in '{0}'.")]
-    FailedToGetOffsets(PathBuf),
-    #[error("A message definition has multiple 'extensions' fields.")]
-    MultipleExtensionsFields,
-    #[error(
-        "A message definition has a target_system or target_component field that is not a u8."
-    )]
-    TargetFieldNotU8,
-    #[error("A message definition has a target_system or target_component field that is not a single value.")]
-    TargetFieldNotSingleValue,
-    #[error("A message definition does not have a closing tag.")]
-    UnexpectedEof,
-    #[error("A message definition has a target_component field but not a target_system field.")]
-    MissingTargetSystem,
+use super::Offsets;
+
+#[derive(Debug, Error)]
+pub enum MsgParseError {
+    #[error("QuickXML error: {0}")]
+    QuickXml(#[from] quick_xml::Error),
     #[error("A field has a malformed array size.")]
     MalformedArraySize,
     #[error("Failed to parse the array size of a field with type '{0}'.")]
@@ -45,103 +23,18 @@ pub enum ParseError {
     FieldWithoutName,
     #[error("A field definition does not have a type.")]
     FieldWithoutType,
-    #[error("Found multiple targeted messages with the same ID.")]
-    MultipleMessagesWithSameId,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Offsets {
-    pub system_id: usize,
-    pub component_id: Option<usize>,
-}
-
-impl Offsets {
-    pub fn new(system_id: usize, component_id: Option<usize>) -> Self {
-        Self {
-            system_id,
-            component_id,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TargetedMessage {
-    pub id: u32,
-    pub offsets: Offsets,
-}
-
-pub struct Parser {
-    targeted_messages: Vec<TargetedMessage>,
-    visited_xml_files: HashSet<PathBuf>,
-}
-
-impl Parser {
-    fn new() -> Self {
-        Self {
-            targeted_messages: Vec::new(),
-            visited_xml_files: HashSet::new(),
-        }
-    }
-
-    fn parse_xml(&mut self, xml: PathBuf) -> Result<()> {
-        if self.visited_xml_files.contains(&xml) {
-            debug!(
-                "Skipping file '{}' as it has already been parsed.",
-                xml.display()
-            );
-            return Ok(());
-        }
-        if !xml.exists() {
-            bail!(ParseError::FileDoesNotExist(xml));
-        }
-        if !xml.is_file() {
-            bail!(ParseError::NotAFile(xml));
-        }
-
-        info!("Parsing MAVLink definition '{}'.", xml.display());
-        let contents = std::fs::read_to_string(&xml)?;
-
-        self.parse_content(&contents, xml)
-    }
-
-    fn parse_content(&mut self, content: &str, xml: PathBuf) -> Result<()> {
-        let parent = match xml.parent() {
-            Some(p) => p,
-            None => xml.as_path(),
-        };
-
-        let mut reader = Reader::from_str(content);
-        reader.trim_text(true);
-
-        loop {
-            match reader.read_event()? {
-                Event::Start(ref e) => match e.name().0 {
-                    b"include" => {
-                        let include_file = reader.read_text(e.name())?;
-                        let include_file = parent.join(include_file.as_ref());
-                        self.parse_xml(include_file)?;
-                    }
-                    b"message" => {
-                        let id = match e.try_get_attribute("id")? {
-                            Some(id) => id.unescape_value()?.parse::<u32>()?,
-                            None => bail!(ParseError::MessageWithoutId(xml)),
-                        };
-
-                        let offsets = try_get_offsets_from_msg(&mut reader)
-                            .with_context(|| ParseError::FailedToGetOffsets(xml.clone()))?;
-                        if let Some(offsets) = offsets {
-                            self.targeted_messages.push(TargetedMessage { id, offsets });
-                        }
-                    }
-                    _ => {}
-                },
-                Event::Eof => break,
-                _ => {}
-            }
-        }
-        self.visited_xml_files.insert(xml);
-        Ok(())
-    }
+    #[error("A message definition has multiple 'extensions' fields.")]
+    MultipleExtensionsFields,
+    #[error(
+        "A message definition has a target_system or target_component field that is not a u8."
+    )]
+    TargetFieldNotU8,
+    #[error("A message definition has a target_system or target_component field that is not a single value.")]
+    TargetFieldNotSingleValue,
+    #[error("A message definition does not have a closing tag.")]
+    UnexpectedEof,
+    #[error("A message definition has a target_component field but not a target_system field.")]
+    MissingTargetSystem,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -160,15 +53,15 @@ enum MessageFieldKind {
 }
 
 impl MessageFieldKind {
-    fn from_str(p: &str) -> Result<(Self, NonZeroUsize)> {
+    fn from_str(p: &str) -> Result<(Self, NonZeroUsize), MsgParseError> {
         let (s, n) = match p.find('[') {
             Some(i) => {
                 let (s, n) = p.split_at(i);
-                let end = n.find(']').ok_or(ParseError::MalformedArraySize)?;
+                let end = n.find(']').ok_or(MsgParseError::MalformedArraySize)?;
                 let n = n[1..end]
                     .parse::<usize>()
-                    .with_context(|| ParseError::FailedToParseArraySize(p.to_string()))?;
-                (s, NonZeroUsize::new(n).ok_or(ParseError::ZeroArraySize)?)
+                    .map_err(|_| MsgParseError::FailedToParseArraySize(p.to_string()))?;
+                (s, NonZeroUsize::new(n).ok_or(MsgParseError::ZeroArraySize)?)
             }
             None => (p, NonZeroUsize::new(1).unwrap()),
         };
@@ -185,7 +78,7 @@ impl MessageFieldKind {
             "int64_t" => Self::I64,
             "float" => Self::F32,
             "double" => Self::F64,
-            _ => bail!(ParseError::UnknownType(p.to_string())),
+            _ => return Err(MsgParseError::UnknownType(p.to_string())),
         };
         Ok((kind, n))
     }
@@ -215,14 +108,14 @@ struct MessageField {
 }
 
 impl MessageField {
-    fn from_bytes(bytes: &BytesStart) -> Result<Self> {
+    fn from_bytes(bytes: &BytesStart) -> Result<Self, MsgParseError> {
         let name = match bytes.try_get_attribute("name")? {
             Some(name) => name.unescape_value()?,
-            None => bail!(ParseError::FieldWithoutName),
+            None => return Err(MsgParseError::FieldWithoutName),
         };
         let field_type = match bytes.try_get_attribute("type")? {
             Some(type_) => type_.unescape_value()?,
-            None => bail!(ParseError::FieldWithoutType),
+            None => return Err(MsgParseError::FieldWithoutType),
         };
         let (kind, multiplicity) = MessageFieldKind::from_str(&field_type)?;
         Ok(Self {
@@ -238,13 +131,16 @@ impl MessageField {
 }
 
 struct MsgParser {
+    // The fields of the message.
     msg_fields: Vec<MessageField>,
+    // The index where the extensions fields start in the msg_fields vector.
     extensions_start_idx: Option<usize>,
+    // Whether the message has target_system and target_component fields.
     is_targeted_msg: bool,
 }
 
 impl MsgParser {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             msg_fields: Vec::new(),
             extensions_start_idx: None,
@@ -252,24 +148,24 @@ impl MsgParser {
         }
     }
 
-    fn record_extension_start(&mut self) -> Result<()> {
+    fn record_extension_start(&mut self) -> Result<(), MsgParseError> {
         // Deal with the 'extensions' field. All fields after this one are extensions, which
         // means they are not reordered, that's why we need to record the index of this field.
         match self.extensions_start_idx {
-            Some(_) => bail!(ParseError::MultipleExtensionsFields),
+            Some(_) => return Err(MsgParseError::MultipleExtensionsFields),
             None => self.extensions_start_idx = Some(self.msg_fields.len()),
         }
         Ok(())
     }
 
-    fn parse_msg_field(&mut self, msg_field: MessageField) -> Result<()> {
+    fn parse_msg_field(&mut self, msg_field: MessageField) -> Result<(), MsgParseError> {
         match msg_field.name.as_str() {
             "target_system" | "target_component" => {
                 if msg_field.kind != MessageFieldKind::U8 {
-                    bail!(ParseError::TargetFieldNotU8)
+                    return Err(MsgParseError::TargetFieldNotU8);
                 }
                 if msg_field.multiplicity.get() != 1 {
-                    bail!(ParseError::TargetFieldNotSingleValue)
+                    return Err(MsgParseError::TargetFieldNotSingleValue);
                 }
                 self.is_targeted_msg = true;
             }
@@ -279,7 +175,7 @@ impl MsgParser {
         Ok(())
     }
 
-    fn compute_offsets(&mut self) -> Result<Option<Offsets>> {
+    fn compute_offsets(&mut self) -> Result<Option<Offsets>, MsgParseError> {
         if !self.is_targeted_msg {
             return Ok(None);
         }
@@ -304,19 +200,22 @@ impl MsgParser {
         });
 
         // If the message is not targeted, we don't need to return any offsets.
-        // It's fine if a message is targeted but doesn't have a target_component field, but it's not fine if it doesn't have a target_system field.
+        // It's fine if a message is targeted but doesn't have a target_component field,
+        // but it's not fine if it doesn't have a target_system field.
         match (system_offset, component_offset) {
             (Some(system_offset), Some(component_offset)) => {
                 Ok(Some(Offsets::new(system_offset, Some(component_offset))))
             }
             (Some(system_offset), None) => Ok(Some(Offsets::new(system_offset, None))),
-            (None, Some(_)) => Err(ParseError::MissingTargetSystem.into()),
+            (None, Some(_)) => Err(MsgParseError::MissingTargetSystem),
             (None, None) => Ok(None),
         }
     }
 }
 
-fn try_get_offsets_from_msg(reader: &mut Reader<&[u8]>) -> Result<Option<Offsets>> {
+pub fn try_get_offsets_from_msg(
+    reader: &mut Reader<&[u8]>,
+) -> Result<Option<Offsets>, MsgParseError> {
     let mut parser = MsgParser::new();
 
     loop {
@@ -331,27 +230,10 @@ fn try_get_offsets_from_msg(reader: &mut Reader<&[u8]>) -> Result<Option<Offsets
             Event::End(ref f) if f.name().0 == b"message" => {
                 return parser.compute_offsets();
             }
-            Event::Eof => bail!(ParseError::UnexpectedEof),
+            Event::Eof => return Err(MsgParseError::UnexpectedEof),
             _ => {}
         }
     }
-}
-
-pub type ID = u32;
-
-pub fn try_get_offsets_from_xml(xml: PathBuf) -> Result<HashMap<ID, Offsets>> {
-    let mut parser = Parser::new();
-    parser.parse_xml(xml)?;
-
-    let mut offsets = HashMap::new();
-    let has_unique_ids = parser
-        .targeted_messages
-        .into_iter()
-        .all(|m| offsets.insert(m.id, m.offsets).is_none());
-    if !has_unique_ids {
-        bail!(ParseError::MultipleMessagesWithSameId);
-    }
-    Ok(offsets)
 }
 
 #[cfg(test)]
@@ -364,12 +246,8 @@ mod tests {
         reader
     }
 
-    fn result_as_parse_err<T>(e: Result<T>) -> Option<ParseError> {
-        e.err().and_then(|e| e.downcast::<ParseError>().ok())
-    }
-
     #[test]
-    fn test_try_get_offsets_from_msg() -> Result<()> {
+    fn test_try_get_offsets_from_msg() -> Result<(), MsgParseError> {
         let mut reader = reader_from_str(
             r#"<message id="1">
                 <field type="uint8_t" name="target_system">Target system ID</field>
@@ -384,7 +262,7 @@ mod tests {
     }
 
     #[test]
-    fn test_try_get_offsets_from_msg_no_target() -> Result<()> {
+    fn test_try_get_offsets_from_msg_no_target() -> Result<(), MsgParseError> {
         let mut reader = reader_from_str(
             r#"<message id="1">
                 <field type="uint8_t" name="something_else">Something else</field>
@@ -397,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn test_try_get_offsets_from_msg_no_component() -> Result<()> {
+    fn test_try_get_offsets_from_msg_no_component() -> Result<(), MsgParseError> {
         let mut reader = reader_from_str(
             r#"<message id="1">
                 <field type="uint8_t" name="target_system">Target system ID</field>
@@ -411,7 +289,7 @@ mod tests {
     }
 
     #[test]
-    fn test_try_get_offsets_from_msg_with_extenstions() -> Result<()> {
+    fn test_try_get_offsets_from_msg_with_extenstions() -> Result<(), MsgParseError> {
         let mut reader = reader_from_str(
             r#"<message id="1">
                 <field type="uint8_t" name="target_system">Target system ID</field>
@@ -429,7 +307,7 @@ mod tests {
     }
 
     #[test]
-    fn test_try_get_offsets_from_msg_not_first_element() -> Result<()> {
+    fn test_try_get_offsets_from_msg_not_first_element() -> Result<(), MsgParseError> {
         let mut reader = reader_from_str(
             r#"<message id="1">
                 <field type="uint8_t" name="something_else">Something else</field>
@@ -444,7 +322,7 @@ mod tests {
     }
 
     #[test]
-    fn test_try_get_offsets_from_msg_with_bigger_fields() -> Result<()> {
+    fn test_try_get_offsets_from_msg_with_bigger_fields() -> Result<(), MsgParseError> {
         let mut reader = reader_from_str(
             r#"<message id="1">
                 <field type="uint8_t" name="target_system">Target system ID</field>
@@ -459,7 +337,7 @@ mod tests {
     }
 
     #[test]
-    fn test_try_get_offsets_from_msg_with_array() -> Result<()> {
+    fn test_try_get_offsets_from_msg_with_array() -> Result<(), MsgParseError> {
         let mut reader = reader_from_str(
             r#"<message id="1">
                 <field type="uint8_t[3]" name="something">Something</field>
@@ -476,7 +354,7 @@ mod tests {
     }
 
     #[test]
-    fn test_try_get_offsets_from_msg_with_array_and_extensions() -> Result<()> {
+    fn test_try_get_offsets_from_msg_with_array_and_extensions() -> Result<(), MsgParseError> {
         let mut reader = reader_from_str(
             r#"<message id="1">
                 <field type="uint8_t[3]" name="something">Something</field>
@@ -505,10 +383,7 @@ mod tests {
         );
 
         let offsets = try_get_offsets_from_msg(&mut reader);
-        assert_eq!(
-            result_as_parse_err(offsets),
-            Some(ParseError::FieldWithoutName)
-        );
+        assert!(matches!(offsets, Err(MsgParseError::FieldWithoutName)));
     }
 
     #[test]
@@ -521,10 +396,7 @@ mod tests {
         );
 
         let offsets = try_get_offsets_from_msg(&mut reader);
-        assert_eq!(
-            result_as_parse_err(offsets),
-            Some(ParseError::FieldWithoutType)
-        );
+        assert!(matches!(offsets, Err(MsgParseError::FieldWithoutType)));
     }
 
     #[test]
@@ -532,10 +404,7 @@ mod tests {
         let kind_str = "uint8_t[";
         let kind = MessageFieldKind::from_str(kind_str);
 
-        assert_eq!(
-            result_as_parse_err(kind),
-            Some(ParseError::MalformedArraySize)
-        );
+        assert!(matches!(kind, Err(MsgParseError::MalformedArraySize)));
     }
 
     #[test]
@@ -543,7 +412,7 @@ mod tests {
         let kind_str = "uint8_t[0]";
         let kind = MessageFieldKind::from_str(kind_str);
 
-        assert_eq!(result_as_parse_err(kind), Some(ParseError::ZeroArraySize));
+        assert!(matches!(kind, Err(MsgParseError::ZeroArraySize)));
     }
 
     #[test]
@@ -551,10 +420,10 @@ mod tests {
         let kind_str = "uint8";
         let kind = MessageFieldKind::from_str(kind_str);
 
-        assert_eq!(
-            result_as_parse_err(kind),
-            Some(ParseError::UnknownType("uint8".to_string()))
-        );
+        assert!(matches!(
+            kind,
+            Err(MsgParseError::UnknownType(type_str)) if type_str == "uint8"
+        ));
     }
 
     #[test]
@@ -562,16 +431,14 @@ mod tests {
         let kind_str = "uint8_t[abc]";
         let kind = MessageFieldKind::from_str(kind_str);
 
-        assert_eq!(
-            result_as_parse_err(kind),
-            Some(ParseError::FailedToParseArraySize(
-                "uint8_t[abc]".to_string()
-            ))
-        );
+        assert!(matches!(
+        kind,
+        Err(MsgParseError::FailedToParseArraySize(type_str)) if type_str == "uint8_t[abc]"
+        ));
     }
 
     #[test]
-    fn test_message_field_kind_from_str() -> Result<()> {
+    fn test_message_field_kind_from_str() -> Result<(), MsgParseError> {
         let kind_str = "uint8_t[3]";
         let (kind, multiplicity) = MessageFieldKind::from_str(kind_str)?;
 
@@ -601,10 +468,7 @@ mod tests {
         );
 
         let offsets = try_get_offsets_from_msg(&mut reader);
-        assert_eq!(
-            result_as_parse_err(offsets),
-            Some(ParseError::TargetFieldNotU8)
-        );
+        assert!(matches!(offsets, Err(MsgParseError::TargetFieldNotU8)));
     }
 
     #[test]
@@ -617,10 +481,7 @@ mod tests {
         );
 
         let offsets = try_get_offsets_from_msg(&mut reader);
-        assert_eq!(
-            result_as_parse_err(offsets),
-            Some(ParseError::MissingTargetSystem)
-        );
+        assert!(matches!(offsets, Err(MsgParseError::MissingTargetSystem)));
     }
 
     #[test]
@@ -638,10 +499,10 @@ mod tests {
         );
 
         let offsets = try_get_offsets_from_msg(&mut reader);
-        assert_eq!(
-            result_as_parse_err(offsets),
-            Some(ParseError::MultipleExtensionsFields)
-        );
+        assert!(matches!(
+            offsets,
+            Err(MsgParseError::MultipleExtensionsFields)
+        ));
     }
 
     #[test]
@@ -654,10 +515,10 @@ mod tests {
         );
 
         let offsets = try_get_offsets_from_msg(&mut reader);
-        assert_eq!(
-            result_as_parse_err(offsets),
-            Some(ParseError::TargetFieldNotSingleValue)
-        );
+        assert!(matches!(
+            offsets,
+            Err(MsgParseError::TargetFieldNotSingleValue)
+        ));
     }
 
     #[test]
@@ -669,9 +530,6 @@ mod tests {
         );
 
         let offsets = try_get_offsets_from_msg(&mut reader);
-        assert_eq!(
-            result_as_parse_err(offsets),
-            Some(ParseError::UnexpectedEof)
-        );
+        assert!(matches!(offsets, Err(MsgParseError::UnexpectedEof)));
     }
 }
