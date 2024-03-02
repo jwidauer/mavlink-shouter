@@ -8,6 +8,7 @@ pub struct UdpTransmitter {
 impl UdpTransmitter {
     pub fn new<A: ToSocketAddrs>(addr: A) -> Result<Self, std::io::Error> {
         let socket = std::net::UdpSocket::bind(addr)?;
+        socket.set_nonblocking(true)?;
         let socket = UdpSocket::from_std(socket)?;
         Ok(Self { socket })
     }

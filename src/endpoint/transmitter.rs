@@ -4,7 +4,6 @@ use crate::mavlink;
 
 #[async_trait::async_trait]
 pub trait Transmitter {
-    // TODO: Add broadcast support
     async fn send_to(
         &self,
         msg: &mavlink::Message,

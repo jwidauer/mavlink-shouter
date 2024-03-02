@@ -1,7 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
 use log::info;
-use simplelog::{ColorChoice, Config, LevelFilter, TermLogger, TerminalMode};
 use std::path;
 use std::sync::Arc;
 
@@ -23,12 +22,10 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    TermLogger::init(
-        LevelFilter::Info,
-        Config::default(),
-        TerminalMode::Mixed,
-        ColorChoice::Auto,
-    )?;
+    env_logger::builder()
+        .format_module_path(false)
+        .format_target(false)
+        .init();
 
     let args = Args::parse();
     let settings = config::Settings::load(&args.config)?;

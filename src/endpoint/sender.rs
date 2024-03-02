@@ -3,7 +3,7 @@ use super::transmitter::Transmitter;
 use super::Name;
 use crate::log_error::LogError;
 use crate::mavlink;
-use futures::future;
+use log::debug;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -36,12 +36,18 @@ impl Sender {
     }
 
     async fn send(&self, msg: mavlink::Message) -> Result<(), SenderError> {
-        self.discovered_targets
-            .get(&msg.target)
-            .map(|target| self.transmitter.send_to(&msg, target))
-            .unwrap_or(Box::pin(future::ok(())))
-            .await
-            .map_err(|e| SenderError::Send(self.name.clone(), e))
+        for target in self
+            .discovered_targets
+            .get_target_addresses(&msg.routing_info)
+        {
+            debug!("[{}] Sending message to: {}", self.name, target);
+            self.transmitter
+                .send_to(&msg, target)
+                .await
+                .map_err(|e| SenderError::Send(self.name.clone(), e))?;
+        }
+
+        Ok(())
     }
 
     pub async fn run(&mut self) {

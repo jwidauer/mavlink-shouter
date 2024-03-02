@@ -3,7 +3,7 @@ use super::transmitter::Transmitter;
 use super::Name;
 use crate::log_error::LogError;
 use crate::mavlink;
-use log::error;
+use log::{debug, error};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -52,8 +52,11 @@ impl Receiver {
         let msg = &buf[..amt];
         self.deserializer
             .deserialize(msg)
-            .inspect(|msg| match msg.sender.is_valid_sender() {
-                true => self.discovered_targets.insert_or_update(msg.sender, addr),
+            .inspect(|_| debug!("[{}] Received message from: {}", self.name, addr))
+            .inspect(|msg| match msg.routing_info.sender.is_valid_sender() {
+                true => self
+                    .discovered_targets
+                    .insert_or_update(msg.routing_info.sender, addr),
                 false => error!(
                     "[{}] Received message from '{}' with invalid sender id",
                     self.name, addr
