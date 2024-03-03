@@ -1,0 +1,24 @@
+= MAVLink Shouter
+
+MAVLink Shouter is a MAVLink routing application that allows you to route MAVLink messages between different applications.
+It is similar to the MAVLink Router, but it is designed to be more flexible and easier to use.
+Here's some of advantages of using MAVLink Shouter:
+
+- Dynamically load message definitions from XML files. This means that you can use MAVLink Shouter with any MAVLink dialect, including custom ones, without having to recompile the application.
+- Multithreaded design. MAVLink Shouter can handle multiple connections and messages at the same time, taking advantage of modern multi-core processors.
+- OS independent. MAVLink Shouter is written in Rust, which means that it can run on any platform that supports Rust, including Windows, Linux, and macOS.
+- Efficient. MAVLink Shouter is designed to be as efficient as possible, using zero-copy message passing and other optimizations to minimize CPU and memory usage.
+
+== Configuration
+
+MAVLink Shouter is configured using a configuration file, which can be in any format that the https://docs.rs/config/latest/config/[`config`] crate supports.
+An example configuration file is provided in the `config` directory.
+
+== Usage
+
+To run MAVLink Shouter, you need to provide it with a configuration file.
+For example, to run MAVLink Shouter with the provided example configuration file, you can use the following command:
+
+```sh
+mavlink-shouter -c config/example.toml
+```
