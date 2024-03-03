@@ -1,0 +1,10 @@
+definitions: mavlink/message_definitions/v1.0/all.xml
+endpoints:
+  - name: endpoint1
+    kind:
+      Udp:
+        address: 127.0.0.1:14550
+  - name: endpoint2
+    kind: 
+      Udp:
+        address: 127.0.0.1:14551
