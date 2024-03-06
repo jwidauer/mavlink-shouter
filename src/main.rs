@@ -25,6 +25,8 @@ async fn main() -> Result<()> {
     env_logger::builder()
         .format_module_path(false)
         .format_target(false)
+        .filter_level(log::LevelFilter::Info)
+        .parse_default_env()
         .init();
 
     let args = Args::parse();
