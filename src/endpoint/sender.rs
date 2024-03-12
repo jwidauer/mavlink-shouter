@@ -1,8 +1,5 @@
-use super::target_database::TargetDatabase;
-use super::transmitter::Transmitter;
-use super::Name;
-use crate::log_error::LogError;
-use crate::mavlink;
+use super::{target_database::TargetDatabase, transmitter::Transmitter, Name};
+use crate::{log_error::LogError, mavlink};
 use log::debug;
 use std::sync::Arc;
 use tokio::sync::mpsc;

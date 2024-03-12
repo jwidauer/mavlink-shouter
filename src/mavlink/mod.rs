@@ -82,10 +82,10 @@ impl SysCompId {
     }
 
     #[inline]
-    pub fn matches(&self, other: &Self) -> bool {
+    pub fn matches(&self, other: Self) -> bool {
         let is_broadcast = self.is_broadcast() || other.is_broadcast();
         let is_sys_broadcast = self.is_sys_broadcast() || other.is_sys_broadcast();
-        is_broadcast || (is_sys_broadcast && self.sys_id == other.sys_id) || self == other
+        is_broadcast || (is_sys_broadcast && self.sys_id == other.sys_id) || *self == other
     }
 }
 
@@ -104,10 +104,16 @@ impl std::fmt::Display for SysCompId {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct RoutingInfo {
     pub sender: SysCompId,
     pub target: SysCompId,
+}
+
+impl RoutingInfo {
+    pub fn matches(&self, target: SysCompId) -> bool {
+        self.target.matches(target) && self.sender != target
+    }
 }
 
 #[derive(Debug, Clone)]
