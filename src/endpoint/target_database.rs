@@ -14,16 +14,16 @@ impl TargetDatabase {
         }
     }
 
-    pub fn insert_or_update(&self, target: mavlink::SysCompId, addr: SocketAddr) {
+    pub fn insert_or_update(&self, sender: mavlink::SysCompId, addr: SocketAddr) {
         let targets = self.targets.upgradable_read();
-        match targets.iter().position(|(t, _)| t == &target) {
+        match targets.iter().position(|(t, _)| t == &sender) {
             Some(index) if targets[index].1 != addr => {
                 let mut targets = ReadGuard::upgrade(targets);
-                targets[index] = (target, addr);
+                targets[index] = (sender, addr);
             }
             None => {
                 let mut targets = ReadGuard::upgrade(targets);
-                targets.push((target, addr));
+                targets.push((sender, addr));
             }
             _ => {}
         }
@@ -33,7 +33,7 @@ impl TargetDatabase {
         self.targets
             .read()
             .iter()
-            .filter(|(t, _)| routing_info.target.matches(t) && routing_info.sender != *t)
+            .filter(|(t, _)| routing_info.matches(*t))
             .map(|(_, addr)| *addr)
             .collect()
     }

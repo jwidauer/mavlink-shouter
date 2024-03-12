@@ -1,12 +1,13 @@
-use receiver::Receiver;
-use sender::Sender;
 use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, sync::Arc};
-use target_database::TargetDatabase;
 use tokio::sync::mpsc;
+
+use receiver::Receiver;
+use sender::Sender;
+use target_database::TargetDatabase;
 use transmitter::Transmitter;
 
-use crate::mavlink;
+use crate::{mavlink, router};
 
 mod receiver;
 mod sender;
@@ -43,7 +44,7 @@ impl Endpoint {
     pub fn new(
         name: String,
         transmitter: impl Transmitter + Send + Sync + 'static,
-        routing_channel: mpsc::Sender<mavlink::Message>,
+        routing_channel: router::RouterTx,
         deserializer: Arc<mavlink::Deserializer>,
     ) -> (mpsc::Sender<mavlink::Message>, Self) {
         let name: Name = name.into();

@@ -4,13 +4,30 @@ use log::info;
 use std::path;
 use std::sync::Arc;
 
-use endpoint::Endpoint;
+use endpoint::{Endpoint, EndpointSettings};
 
 mod config;
 mod endpoint;
 mod log_error;
 mod mavlink;
 mod router;
+
+fn endpoints_from_settings(
+    settings: Vec<EndpointSettings>,
+    router: &mut router::Router,
+    deserializer: Arc<mavlink::Deserializer>,
+) -> Result<Vec<Endpoint>> {
+    settings
+        .into_iter()
+        .map(|settings| {
+            let (endpoint_tx, endpoint) =
+                Endpoint::from_settings(settings, router.tx(), deserializer.clone())?;
+
+            router.add_endpoint(endpoint_tx);
+            Ok(endpoint)
+        })
+        .collect()
+}
 
 #[derive(Debug, Parser)]
 #[command(author, version, about, long_about = None)]
@@ -38,21 +55,10 @@ async fn main() -> Result<()> {
         .map(mavlink::Deserializer::new)
         .map(Arc::new)?;
 
-    let (tx, mut router) = router::Router::new();
+    let mut router = router::Router::new();
 
     info!("Creating endpoints...");
-    let endpoints = settings
-        .endpoints
-        .into_iter()
-        .map(|settings| {
-            let (endpoint_tx, endpoint) =
-                Endpoint::from_settings(settings, tx.clone(), deserializer.clone())?;
-
-            router.add_endpoint(endpoint_tx);
-
-            Ok(endpoint)
-        })
-        .collect::<Result<Vec<_>, std::io::Error>>()?;
+    let endpoints = endpoints_from_settings(settings.endpoints, &mut router, deserializer)?;
 
     info!("Starting endpoints...");
     for endpoint in endpoints {
