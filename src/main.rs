@@ -4,8 +4,6 @@ use log::info;
 use std::path;
 use std::sync::Arc;
 
-use endpoint::Endpoint;
-
 mod config;
 mod endpoint;
 mod log_error;
@@ -38,26 +36,7 @@ async fn main() -> Result<()> {
         .map(mavlink::Deserializer::new)
         .map(Arc::new)?;
 
-    let (tx, mut router) = router::Router::new();
-
-    info!("Creating endpoints...");
-    let endpoints = settings
-        .endpoints
-        .into_iter()
-        .map(|settings| {
-            let (endpoint_tx, endpoint) =
-                Endpoint::from_settings(settings, tx.clone(), deserializer.clone())?;
-
-            router.add_endpoint(endpoint_tx);
-
-            Ok(endpoint)
-        })
-        .collect::<Result<Vec<_>, std::io::Error>>()?;
-
-    info!("Starting endpoints...");
-    for endpoint in endpoints {
-        endpoint.start().await;
-    }
+    let mut router = router::Router::from_settings(settings.router, deserializer).await?;
 
     info!("Starting router...");
     router.start_routing().await;

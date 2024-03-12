@@ -6,7 +6,7 @@ use target_database::TargetDatabase;
 use tokio::sync::mpsc;
 use transmitter::Transmitter;
 
-use crate::mavlink;
+use crate::{mavlink, router};
 
 mod receiver;
 mod sender;
@@ -33,19 +33,22 @@ pub struct EndpointSettings {
 }
 
 type Name = Arc<str>;
+pub type Id = usize;
 
 pub struct Endpoint {
     sender: Sender,
     receiver: Receiver,
+    tx: mpsc::Sender<mavlink::Message>,
 }
 
 impl Endpoint {
     pub fn new(
+        id: usize,
         name: String,
         transmitter: impl Transmitter + Send + Sync + 'static,
-        routing_channel: mpsc::Sender<mavlink::Message>,
+        routing_channel: router::RouterTx,
         deserializer: Arc<mavlink::Deserializer>,
-    ) -> (mpsc::Sender<mavlink::Message>, Self) {
+    ) -> Self {
         let name: Name = name.into();
         let transmitter = Arc::new(transmitter);
         let discovered_targets = Arc::new(TargetDatabase::new());
@@ -60,30 +63,41 @@ impl Endpoint {
             rx,
         );
         let receiver = Receiver::new(
+            id,
             name,
             transmitter,
             discovered_targets,
             routing_channel,
             deserializer,
         );
-        (tx, Self { sender, receiver })
+        Self {
+            sender,
+            receiver,
+            tx,
+        }
     }
 
     pub fn from_settings(
+        id: Id,
         settings: EndpointSettings,
-        routing_channel: mpsc::Sender<mavlink::Message>,
+        routing_channel: router::RouterTx,
         deserializer: Arc<mavlink::Deserializer>,
-    ) -> Result<(mpsc::Sender<mavlink::Message>, Self), std::io::Error> {
+    ) -> Result<Self, std::io::Error> {
         let transmitter = match settings.kind {
             EndpointKind::Udp(udp_settings) => udp::UdpTransmitter::new(udp_settings.address)?,
             EndpointKind::Serial => unimplemented!("Serial endpoints are not yet supported."),
         };
         Ok(Self::new(
+            id,
             settings.name,
             transmitter,
             routing_channel,
             deserializer,
         ))
+    }
+
+    pub fn tx(&self) -> mpsc::Sender<mavlink::Message> {
+        self.tx.clone()
     }
 
     pub async fn start(self) {

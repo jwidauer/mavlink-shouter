@@ -110,6 +110,12 @@ pub struct RoutingInfo {
     pub target: SysCompId,
 }
 
+impl RoutingInfo {
+    pub fn matches(&self, target: &SysCompId) -> bool {
+        self.target.matches(target) && self.sender != *target
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Message {
     pub routing_info: RoutingInfo,

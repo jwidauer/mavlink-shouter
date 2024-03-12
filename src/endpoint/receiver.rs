@@ -1,8 +1,6 @@
-use super::target_database::TargetDatabase;
-use super::transmitter::Transmitter;
-use super::Name;
-use crate::log_error::LogError;
+use super::{target_database::TargetDatabase, transmitter::Transmitter, Id, Name};
 use crate::mavlink;
+use crate::{log_error::LogError, router};
 use log::{debug, error};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -14,30 +12,33 @@ pub enum ReceiverError {
     #[error("[{0}] Failed to deserialize message")]
     Deserialization(Name, #[source] mavlink::DeserializationError),
     #[error("[{0}] Failed to send message to router")]
-    SendToRouter(Name, #[source] mpsc::error::SendError<mavlink::Message>),
+    SendToRouter(Name, #[source] mpsc::error::SendError<router::Message>),
 }
 
 pub struct Receiver {
+    id: Id,
     name: Name,
     transmitter: Arc<dyn Transmitter + Sync + Send>,
     discovered_targets: Arc<TargetDatabase>,
-    msg_tx: mpsc::Sender<mavlink::Message>,
+    router_tx: router::RouterTx,
     deserializer: Arc<mavlink::Deserializer>,
 }
 
 impl Receiver {
     pub fn new(
+        id: Id,
         name: Name,
         transmitter: Arc<dyn Transmitter + Sync + Send>,
         discovered_targets: Arc<TargetDatabase>,
-        msg_tx: mpsc::Sender<mavlink::Message>,
+        router_tx: router::RouterTx,
         deserializer: Arc<mavlink::Deserializer>,
     ) -> Self {
         Self {
+            id,
             name,
             transmitter,
             discovered_targets,
-            msg_tx,
+            router_tx,
             deserializer,
         }
     }
@@ -69,8 +70,11 @@ impl Receiver {
         loop {
             if let Some(msg) = self.recv().await.log_error() {
                 if self
-                    .msg_tx
-                    .send(msg)
+                    .router_tx
+                    .send(router::Message {
+                        endpoint_id: self.id,
+                        msg,
+                    })
                     .await
                     .map_err(|e| ReceiverError::SendToRouter(self.name.clone(), e))
                     .log_error()

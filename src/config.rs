@@ -2,13 +2,13 @@ use config::Config;
 use serde::{Deserialize, Serialize};
 use std::path;
 
-use crate::endpoint::EndpointSettings;
+use crate::router::RouterSettings;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Settings {
     /// The path to the XML definition file.
     pub definitions: path::PathBuf,
-    pub endpoints: Vec<EndpointSettings>,
+    pub router: RouterSettings,
 }
 
 impl Settings {
@@ -38,16 +38,16 @@ mod tests {
             settings.definitions,
             path::PathBuf::from("tests/fixtures/definitions.xml")
         );
-        assert_eq!(settings.endpoints.len(), 2);
-        assert_eq!(settings.endpoints[0].name, "udp");
+        assert_eq!(settings.router.endpoints.len(), 2);
+        assert_eq!(settings.router.endpoints[0].name, "udp");
         assert_eq!(
-            settings.endpoints[0].kind,
+            settings.router.endpoints[0].kind,
             EndpointKind::Udp(UdpEndpointSettings {
                 address: SocketAddr::new(IpAddr::V4("127.0.0.1".parse().unwrap()), 14550)
             })
         );
-        assert_eq!(settings.endpoints[1].name, "serial");
-        assert_eq!(settings.endpoints[1].kind, EndpointKind::Serial);
+        assert_eq!(settings.router.endpoints[1].name, "serial");
+        assert_eq!(settings.router.endpoints[1].kind, EndpointKind::Serial);
         Ok(())
     }
 }

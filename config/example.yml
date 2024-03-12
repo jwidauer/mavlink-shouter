@@ -1,10 +1,11 @@
 definitions: mavlink/message_definitions/v1.0/all.xml
-endpoints:
-  - name: autopilot
-    kind:
-      Udp:
-        address: 127.0.0.1:14550
-  - name: gcs
-    kind: 
-      Udp:
-        address: 127.0.0.1:14551
+router:
+  endpoints:
+    - name: autopilot
+      kind:
+        Udp:
+          address: 224.22.22.22:14550
+    - name: gcs
+      kind: 
+        Udp:
+          address: 127.0.0.1:14551
