@@ -2,7 +2,7 @@ use super::definitions::Offsets;
 use super::{v1, v2, Message, RoutingInfo, SysCompId};
 use anyhow::Result;
 use log::debug;
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Error)]
@@ -25,7 +25,7 @@ impl Deserializer {
         Self { offsets }
     }
 
-    pub fn deserialize(&self, msg: &[u8]) -> Result<Message, DeserializationError> {
+    pub fn deserialize(&self, msg: Arc<[u8]>) -> Result<Message, DeserializationError> {
         match msg.first() {
             Some(&v1::PACKET_MAGIC) => self.deserialize_v1(msg),
             Some(&v2::PACKET_MAGIC) => self.deserialize_v2(msg),
@@ -34,7 +34,7 @@ impl Deserializer {
         }
     }
 
-    fn deserialize_v1(&self, msg: &[u8]) -> Result<Message, DeserializationError> {
+    fn deserialize_v1(&self, msg: Arc<[u8]>) -> Result<Message, DeserializationError> {
         if msg.len() < v1::MIN_PACKET_LEN {
             return Err(DeserializationError::TooShort);
         }
@@ -55,11 +55,11 @@ impl Deserializer {
 
         Ok(Message {
             routing_info: RoutingInfo { sender, target },
-            data: msg.to_vec().into(),
+            data: msg,
         })
     }
 
-    fn deserialize_v2(&self, msg: &[u8]) -> Result<Message, DeserializationError> {
+    fn deserialize_v2(&self, msg: Arc<[u8]>) -> Result<Message, DeserializationError> {
         if msg.len() < v2::MIN_PACKET_LEN {
             return Err(DeserializationError::TooShort);
         }
@@ -80,7 +80,7 @@ impl Deserializer {
 
         Ok(Message {
             routing_info: RoutingInfo { sender, target },
-            data: msg.to_vec().into(),
+            data: msg,
         })
     }
 
