@@ -1,0 +1,56 @@
+name: default
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo plugins
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit,cargo-machete,cargo-tarpaulin
+
+      - name: Install dependencies
+        run: cargo fetch
+
+      - name: Build
+        run: cargo build --verbose
+
+      - name: Test
+        run: cargo test --verbose
+
+      - name: Check formatting
+        run: cargo fmt -- --check
+
+      - name: Check clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Check documentation
+        run: cargo doc --no-deps --document-private-items --all-features
+
+      - name: Check for unused dependencies
+        run: cargo machete
+
+      - name: Check security
+        run: cargo audit
+
+      - name: Check for code coverage
+        run: cargo tarpaulin --out Stdout
