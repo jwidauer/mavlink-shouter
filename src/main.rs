@@ -62,7 +62,7 @@ async fn main() -> Result<()> {
 
     info!("Starting endpoints...");
     for endpoint in endpoints {
-        endpoint.start().await;
+        endpoint.start();
     }
 
     info!("Starting router...");
