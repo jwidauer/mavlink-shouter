@@ -4,6 +4,7 @@ endpoints:
     kind:
       Udp:
         address: 127.0.0.1:14550
-  - name: serial
+  - name: tcp
     kind:
-      Serial:
+      Tcp:
+        address: 127.0.0.1:14551

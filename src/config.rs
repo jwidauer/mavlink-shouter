@@ -23,7 +23,7 @@ impl Settings {
 
 #[cfg(test)]
 mod tests {
-    use crate::endpoint::{EndpointKind, UdpEndpointSettings};
+    use crate::endpoint::transmitter::{self, tcp, udp};
 
     use super::*;
     use std::net::{IpAddr, SocketAddr};
@@ -42,12 +42,17 @@ mod tests {
         assert_eq!(settings.endpoints[0].name, "udp");
         assert_eq!(
             settings.endpoints[0].kind,
-            EndpointKind::Udp(UdpEndpointSettings {
+            transmitter::Settings::Udp(udp::Settings {
                 address: SocketAddr::new(IpAddr::V4("127.0.0.1".parse().unwrap()), 14550)
             })
         );
-        assert_eq!(settings.endpoints[1].name, "serial");
-        assert_eq!(settings.endpoints[1].kind, EndpointKind::Serial);
+        assert_eq!(settings.endpoints[1].name, "tcp");
+        assert_eq!(
+            settings.endpoints[1].kind,
+            transmitter::Settings::Tcp(tcp::Settings {
+                address: SocketAddr::new(IpAddr::V4("127.0.0.1".parse().unwrap()), 14551)
+            })
+        );
         Ok(())
     }
 }

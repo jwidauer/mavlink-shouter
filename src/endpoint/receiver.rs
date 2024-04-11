@@ -1,4 +1,4 @@
-use super::{target_database::TargetDatabase, transmitter::Transmitter, Name};
+use super::{target_database::TargetDatabase, transmitter, Name};
 use crate::{log_error::LogError, mavlink, router};
 use log::{debug, error};
 use std::sync::Arc;
@@ -16,7 +16,7 @@ pub enum ReceiverError {
 
 pub struct Receiver {
     name: Name,
-    transmitter: Arc<dyn Transmitter + Sync + Send>,
+    receiver: transmitter::Receiver,
     discovered_targets: Arc<TargetDatabase>,
     msg_tx: router::RouterTx,
     deserializer: Arc<mavlink::Deserializer>,
@@ -25,48 +25,36 @@ pub struct Receiver {
 impl Receiver {
     pub fn new(
         name: Name,
-        transmitter: Arc<dyn Transmitter + Sync + Send>,
+        receiver: transmitter::Receiver,
         discovered_targets: Arc<TargetDatabase>,
         msg_tx: router::RouterTx,
         deserializer: Arc<mavlink::Deserializer>,
     ) -> Self {
         Self {
             name,
-            transmitter,
+            receiver,
             discovered_targets,
             msg_tx,
             deserializer,
         }
     }
 
-    async fn recv(&self) -> Result<mavlink::Message, ReceiverError> {
-        let mut buf = [0; 65535];
-        let (amt, addr) = self
-            .transmitter
-            .recv_from(&mut buf)
-            .await
-            .map_err(|e| ReceiverError::Receive(self.name.clone(), e))?;
-        let msg = &buf[..amt];
+    fn deserialize(&self, data: transmitter::Data) -> Result<mavlink::Message, ReceiverError> {
+        let (msg, addr) = data;
         self.deserializer
             .deserialize(msg)
             .inspect(|_| debug!("[{}] Received message from: {}", self.name, addr))
-            .inspect(|msg| {
-                if msg.routing_info.sender.is_valid_sender() {
-                    self.discovered_targets
-                        .insert_or_update(msg.routing_info.sender, addr);
-                } else {
-                    error!(
-                        "[{}] Received message from '{}' with invalid sender id: {}",
-                        self.name, addr, msg.routing_info.sender
-                    );
-                }
-            })
+            .inspect(|msg| self.validate_and_update_db(msg, addr))
             .map_err(|e| ReceiverError::Deserialization(self.name.clone(), e))
     }
 
     pub async fn run(&mut self) {
-        loop {
-            if let Some(msg) = self.recv().await.log_error() {
+        while let Some(data) = self.receiver.recv().await {
+            if let Some(msg) = data
+                .map_err(|e| ReceiverError::Receive(self.name.clone(), e))
+                .and_then(|data| self.deserialize(data))
+                .log_error()
+            {
                 if self
                     .msg_tx
                     .send(msg)
@@ -79,6 +67,18 @@ impl Receiver {
                     return;
                 }
             }
+        }
+    }
+
+    fn validate_and_update_db(&self, msg: &mavlink::Message, addr: std::net::SocketAddr) {
+        if msg.routing_info.sender.is_valid_sender() {
+            self.discovered_targets
+                .insert_or_update(msg.routing_info.sender, addr);
+        } else {
+            error!(
+                "[{}] Received message from '{}' with invalid sender id: {}",
+                self.name, addr, msg.routing_info.sender
+            );
         }
     }
 }
