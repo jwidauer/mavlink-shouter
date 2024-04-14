@@ -1,3 +1,4 @@
+use log::info;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::mpsc;
 
@@ -24,6 +25,7 @@ pub enum Transmitter {
 
 impl Transmitter {
     pub fn new(settings: Settings) -> Result<Self> {
+        info!("Creating transmitter with settings: {:?}", settings);
         match settings {
             Settings::Udp(settings) => udp::UdpTransmitter::new(settings).map(Self::Udp),
             Settings::Tcp(settings) => tcp::TcpTransmitter::new(settings).map(Self::Tcp),

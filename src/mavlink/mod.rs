@@ -11,12 +11,16 @@ pub mod v1 {
     pub const MIN_PACKET_LEN: usize = 8;
     pub const MAX_PACKET_LEN: usize = 263;
     pub const HEADER_LEN: usize = 6;
+    pub const CHECKSUM_LEN: usize = 2;
 }
 pub mod v2 {
     pub const PACKET_MAGIC: u8 = 0xFD;
+    pub const IFLAG_SIGNED: u8 = 0x01; // Message is signed
     pub const MIN_PACKET_LEN: usize = 12;
     pub const MAX_PACKET_LEN: usize = 280;
     pub const HEADER_LEN: usize = 10;
+    pub const CHECKSUM_LEN: usize = 2;
+    pub const SIGNATURE_LEN: usize = 13;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

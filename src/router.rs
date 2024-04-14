@@ -10,17 +10,6 @@ pub struct Router {
 }
 
 impl Router {
-    pub fn new() -> Self {
-        // Create a channel for sending messages to the router
-        let (msg_tx, msg_rx) = mpsc::channel(16);
-
-        Self {
-            msg_tx,
-            msg_rx,
-            endpoints_tx: Vec::new(),
-        }
-    }
-
     pub fn tx(&self) -> mpsc::Sender<mavlink::Message> {
         self.msg_tx.clone()
     }
@@ -29,11 +18,30 @@ impl Router {
         self.endpoints_tx.push(tx);
     }
 
-    pub async fn start_routing(&mut self) {
+    pub fn start(mut self) {
+        tokio::spawn(async move {
+            self.route().await;
+        });
+    }
+
+    async fn route(&mut self) {
         while let Some(msg) = self.msg_rx.recv().await {
             for tx in &self.endpoints_tx {
                 tx.send(msg.clone()).await.log_error();
             }
+        }
+    }
+}
+
+impl Default for Router {
+    fn default() -> Self {
+        // Create a channel for sending messages to the router
+        let (msg_tx, msg_rx) = mpsc::channel(128);
+
+        Self {
+            msg_tx,
+            msg_rx,
+            endpoints_tx: Vec::new(),
         }
     }
 }

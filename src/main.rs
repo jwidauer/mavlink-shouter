@@ -1,33 +1,8 @@
 use anyhow::Result;
 use clap::Parser;
-use log::info;
 use std::path;
-use std::sync::Arc;
 
-use endpoint::{Endpoint, EndpointSettings};
-
-mod config;
-mod endpoint;
-mod log_error;
-mod mavlink;
-mod router;
-
-fn endpoints_from_settings(
-    settings: Vec<EndpointSettings>,
-    router: &mut router::Router,
-    deserializer: Arc<mavlink::Deserializer>,
-) -> Result<Vec<Endpoint>> {
-    settings
-        .into_iter()
-        .map(|settings| {
-            let (endpoint_tx, endpoint) =
-                Endpoint::from_settings(settings, router.tx(), deserializer.clone())?;
-
-            router.add_endpoint(endpoint_tx);
-            Ok(endpoint)
-        })
-        .collect()
-}
+use mavlink_shouter::{config, MAVLinkShouter};
 
 #[derive(Debug, Parser)]
 #[command(author, version, about, long_about = None)]
@@ -49,24 +24,9 @@ async fn main() -> Result<()> {
     let args = Args::parse();
     let settings = config::Settings::load(&args.config)?;
 
-    // Load the message offsets from the XML definitions
-    let deserializer = mavlink::definitions::try_get_offsets_from_xml(settings.definitions)
-        .inspect(|offsets| info!("Found {} targeted messages.", offsets.len()))
-        .map(mavlink::Deserializer::new)
-        .map(Arc::new)?;
+    MAVLinkShouter::new(settings)?.run();
 
-    let mut router = router::Router::new();
-
-    info!("Creating endpoints...");
-    let endpoints = endpoints_from_settings(settings.endpoints, &mut router, deserializer)?;
-
-    info!("Starting endpoints...");
-    for endpoint in endpoints {
-        endpoint.start();
-    }
-
-    info!("Starting router...");
-    router.start_routing().await;
+    tokio::signal::ctrl_c().await?;
 
     Ok(())
 }
