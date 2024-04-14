@@ -9,9 +9,9 @@ use thiserror::Error;
 pub enum DeserializationError {
     #[error("The packet is too short.")]
     TooShort,
-    #[error("The packet is too long.")]
-    TooLong,
-    #[error("The packet has an invalid magic byte of {0}.")]
+    #[error("The packet has an invalid length: expected: {0} actual: {1}")]
+    InvalidLength(usize, usize),
+    #[error("The packet has an invalid magic byte of '0x{0:02x}'.")]
     InvalidMagic(u8),
 }
 
@@ -38,11 +38,13 @@ impl Deserializer {
         if msg.len() < v1::MIN_PACKET_LEN {
             return Err(DeserializationError::TooShort);
         }
-        if msg.len() > v1::MAX_PACKET_LEN {
-            return Err(DeserializationError::TooLong);
-        }
 
         let payload_len = msg[1] as usize;
+        let expected_len = v1::HEADER_LEN + payload_len + v1::CHECKSUM_LEN;
+        if msg.len() != expected_len {
+            return Err(DeserializationError::InvalidLength(expected_len, msg.len()));
+        }
+
         let sender = (msg[3], msg[4]).into();
         let msg_id = msg[5] as u32;
 
@@ -63,11 +65,17 @@ impl Deserializer {
         if msg.len() < v2::MIN_PACKET_LEN {
             return Err(DeserializationError::TooShort);
         }
-        if msg.len() > v2::MAX_PACKET_LEN {
-            return Err(DeserializationError::TooLong);
-        }
 
         let payload_len = msg[1] as usize;
+        let mut expected_len = v2::HEADER_LEN + payload_len + v2::CHECKSUM_LEN;
+        let inc_flags = msg[2];
+        if inc_flags & v2::IFLAG_SIGNED != 0 {
+            expected_len += v2::SIGNATURE_LEN;
+        }
+        if msg.len() != expected_len {
+            return Err(DeserializationError::InvalidLength(expected_len, msg.len()));
+        }
+
         let sender = (msg[5], msg[6]).into();
         let msg_id = u32::from_le_bytes([msg[7], msg[8], msg[9], 0]);
 
