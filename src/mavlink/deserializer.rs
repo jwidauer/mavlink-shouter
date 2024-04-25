@@ -48,16 +48,16 @@ impl Deserializer {
         let sender = (msg[3], msg[4]).into();
         let msg_id = msg[5] as u32;
 
-        debug!("sender: {}, msg_id: {}", sender, msg_id);
-
         // The payload is the message minus the header and checksum.
         let payload = &msg[v1::HEADER_LEN..payload_len + v1::HEADER_LEN];
 
         let target = self.target_from_payload(msg_id, payload);
 
+        debug!("msg_id: {}, sender: {}, target: {}", msg_id, sender, target);
+
         Ok(Message {
             routing_info: RoutingInfo { sender, target },
-            data: msg,
+            data: msg.into(),
         })
     }
 
@@ -79,16 +79,16 @@ impl Deserializer {
         let sender = (msg[5], msg[6]).into();
         let msg_id = u32::from_le_bytes([msg[7], msg[8], msg[9], 0]);
 
-        debug!("sender: {}, msg_id: {}", sender, msg_id);
-
         // The payload is the message minus the header and checksum.
         let payload = &msg[v2::HEADER_LEN..payload_len + v2::HEADER_LEN];
 
         let target = self.target_from_payload(msg_id, payload);
 
+        debug!("msg_id: {}, sender: {}, target: {}", msg_id, sender, target);
+
         Ok(Message {
             routing_info: RoutingInfo { sender, target },
-            data: msg,
+            data: msg.into(),
         })
     }
 

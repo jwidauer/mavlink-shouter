@@ -1,10 +1,12 @@
-use std::sync::Arc;
+use tokio_util::bytes::Bytes;
 
-pub use self::deserializer::DeserializationError;
-pub use self::deserializer::Deserializer;
+pub use self::codec::Codec;
+// pub use self::deserializer::DeserializationError;
+// pub use self::deserializer::Deserializer;
 
+pub mod codec;
 pub mod definitions;
-mod deserializer;
+// mod deserializer;
 
 pub mod v1 {
     pub const PACKET_MAGIC: u8 = 0xFE;
@@ -104,7 +106,7 @@ impl From<(u8, u8)> for SysCompId {
 
 impl std::fmt::Display for SysCompId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "sys_id: {}, comp_id: {}", self.sys_id(), self.comp_id())
+        write!(f, "{}/{}", self.sys_id(), self.comp_id())
     }
 }
 
@@ -123,5 +125,5 @@ impl RoutingInfo {
 #[derive(Debug, Clone)]
 pub struct Message {
     pub routing_info: RoutingInfo,
-    pub data: Arc<[u8]>,
+    pub data: Bytes,
 }

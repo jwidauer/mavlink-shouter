@@ -16,4 +16,24 @@ parking_lot = "0.12.1"
 quick-xml = "0.31.0"
 serde = { version = "1.0.196", features = ["serde_derive"] }
 thiserror = "1.0.56"
-tokio = { version = "1.37.0", features = ["full"] }
+tokio = { version = "1.37.0", features = ["full", "tracing"] }
+rand = "0.8.5"
+pprof = { version = "0.13.0", features = ["flamegraph"] }
+tokio-util = { version = "0.7.10", features = ["codec", "net"] }
+tokio-stream = "0.1.15"
+futures-sink = "0.3.30"
+futures = "0.3.30"
+console-subscriber = "0.2.0"
+
+[[bin]]
+name = "mavlink-shouter"
+path = "src/main.rs"
+
+[[bin]]
+name = "bencher"
+path = "src/bencher.rs"
+
+[profile.release]
+# codegen-units = 1
+debug = true
+# lto = "fat"

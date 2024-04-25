@@ -1,11 +1,11 @@
 use crate::{log_error::LogError, mavlink};
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 
-pub type RouterTx = mpsc::Sender<mavlink::Message>;
+pub type RouterTx = broadcast::Sender<mavlink::Message>;
 
 pub struct Router {
     msg_tx: RouterTx,
-    msg_rx: mpsc::Receiver<mavlink::Message>,
+    msg_rx: broadcast::Receiver<mavlink::Message>,
     endpoints_tx: Vec<mpsc::Sender<mavlink::Message>>,
 }
 
@@ -36,7 +36,7 @@ impl Router {
 impl Default for Router {
     fn default() -> Self {
         // Create a channel for sending messages to the router
-        let (msg_tx, msg_rx) = mpsc::channel(128);
+        let (msg_tx, msg_rx) = broadcast::channel(128);
 
         Self {
             msg_tx,

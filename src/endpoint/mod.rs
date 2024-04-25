@@ -1,18 +1,24 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokio::sync::mpsc;
+use tokio::sync::broadcast;
 
 use receiver::Receiver;
 use sender::Sender;
 use target_database::TargetDatabase;
 use transmitter::*;
 
-use crate::{mavlink, router};
+use crate::{
+    mavlink::{self, Codec},
+    // router,
+};
 
 mod receiver;
 mod sender;
 mod target_database;
 pub mod transmitter;
+
+type BroadcastTx = broadcast::Sender<mavlink::Message>;
+type BroadcastRx = broadcast::Receiver<mavlink::Message>;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EndpointSettings {
@@ -28,53 +34,39 @@ pub struct Endpoint {
 }
 
 impl Endpoint {
-    pub fn new(
-        name: String,
-        transmitter: Transmitter,
-        routing_channel: router::RouterTx,
-        deserializer: Arc<mavlink::Deserializer>,
-    ) -> (mpsc::Sender<mavlink::Message>, Self) {
+    pub fn new(name: String, transmitter: Transmitter, broadcast_tx: BroadcastTx) -> Self {
         let name: Name = name.into();
-        let (transmitter_tx, transmitter_rx) = transmitter.split();
+        let (sink, stream) = transmitter.split();
         let discovered_targets = Arc::new(TargetDatabase::new());
 
         // Create a channel for sending messages to the endpoint
-        let (tx, rx) = mpsc::channel(16);
+        // let (tx, rx) = mpsc::channel(16);
 
-        let sender = Sender::new(name.clone(), transmitter_tx, discovered_targets.clone(), rx);
-        let receiver = Receiver::new(
-            name,
-            transmitter_rx,
-            discovered_targets,
-            routing_channel,
-            deserializer,
-        );
-        (tx, Self { sender, receiver })
+        let broadcast_rx = broadcast_tx.subscribe();
+
+        let sender = Sender::new(name.clone(), sink, discovered_targets.clone(), broadcast_rx);
+        let receiver = Receiver::new(name, stream, discovered_targets, broadcast_tx);
+        Self { sender, receiver }
     }
 
     pub fn from_settings(
         settings: EndpointSettings,
-        routing_channel: mpsc::Sender<mavlink::Message>,
-        deserializer: Arc<mavlink::Deserializer>,
-    ) -> Result<(mpsc::Sender<mavlink::Message>, Self), std::io::Error> {
-        let transmitter = Transmitter::new(settings.kind)?;
-        Ok(Self::new(
-            settings.name,
-            transmitter,
-            routing_channel,
-            deserializer,
-        ))
+        broadcaster: BroadcastTx,
+        codec: Codec,
+    ) -> Result<Self, std::io::Error> {
+        let transmitter = Transmitter::new(codec, settings.kind)?;
+        Ok(Self::new(settings.name, transmitter, broadcaster))
     }
 
     pub fn start(self) {
         // Start sending messages received from the router
-        let mut sender = self.sender;
+        let sender = self.sender;
         tokio::spawn(async move {
             sender.run().await;
         });
 
         // Start receiving messages from the endpoint
-        let mut receiver = self.receiver;
+        let receiver = self.receiver;
         tokio::spawn(async move {
             receiver.run().await;
         });

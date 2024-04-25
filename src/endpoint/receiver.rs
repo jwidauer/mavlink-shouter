@@ -1,84 +1,85 @@
-use super::{target_database::TargetDatabase, transmitter, Name};
-use crate::{log_error::LogError, mavlink, router};
+use super::{target_database::TargetDatabase, BroadcastTx, Name, RecvResult};
+use crate::{
+    log_error::LogError,
+    mavlink::{self},
+    // router,
+};
+use futures::Stream;
 use log::{debug, error};
-use std::sync::Arc;
-use tokio::sync::mpsc;
+use std::{pin::Pin, sync::Arc};
+use tokio::sync::broadcast;
+use tokio_stream::StreamExt;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ReceiverError {
-    #[error("[{0}] Failed to receive message")]
-    Receive(Name, #[source] std::io::Error),
-    #[error("[{0}] Failed to deserialize message")]
-    Deserialization(Name, #[source] mavlink::DeserializationError),
+    // #[error("[{0}] Failed to deserialize message")]
+    // Deserialization(Name, #[source] mavlink::DeserializationError),
     #[error("[{0}] Failed to send message to router")]
-    SendToRouter(Name, #[source] mpsc::error::SendError<mavlink::Message>),
+    SendToRouter(
+        Name,
+        #[source] broadcast::error::SendError<mavlink::Message>,
+    ),
 }
 
+/// Receives messages from a stream and sends them to the router
 pub struct Receiver {
     name: Name,
-    receiver: transmitter::Receiver,
+    stream: Pin<Box<dyn Stream<Item = RecvResult> + Send>>,
     discovered_targets: Arc<TargetDatabase>,
-    msg_tx: router::RouterTx,
-    deserializer: Arc<mavlink::Deserializer>,
+    msg_tx: BroadcastTx,
 }
 
 impl Receiver {
     pub fn new(
         name: Name,
-        receiver: transmitter::Receiver,
+        stream: impl Stream<Item = RecvResult> + Send + 'static,
         discovered_targets: Arc<TargetDatabase>,
-        msg_tx: router::RouterTx,
-        deserializer: Arc<mavlink::Deserializer>,
+        msg_tx: BroadcastTx,
     ) -> Self {
         Self {
             name,
-            receiver,
+            stream: Box::pin(stream),
             discovered_targets,
             msg_tx,
-            deserializer,
         }
     }
 
-    fn deserialize(&self, data: transmitter::Data) -> Result<mavlink::Message, ReceiverError> {
-        let (msg, addr) = data;
-        self.deserializer
-            .deserialize(msg)
-            .inspect(|_| debug!("[{}] Received message from: {}", self.name, addr))
-            .inspect(|msg| self.validate_and_update_db(msg, addr))
-            .map_err(|e| ReceiverError::Deserialization(self.name.clone(), e))
-    }
+    pub async fn run(mut self) {
+        while let Some(data) = self.stream.next().await {
+            let (msg, addr) = match data.log_error() {
+                Some(data) => data,
+                None => continue,
+            };
+            debug!(target: &self.name,
+                "Received message from: {} (sender: {}, target: {})",
+                addr, msg.routing_info.sender, msg.routing_info.target
+            );
+            self.validate_and_update_db(&msg, addr);
 
-    pub async fn run(&mut self) {
-        while let Some(data) = self.receiver.recv().await {
-            if let Some(msg) = data
-                .map_err(|e| ReceiverError::Receive(self.name.clone(), e))
-                .and_then(|data| self.deserialize(data))
+            if self
+                .msg_tx
+                .send(msg)
+                // .await
+                .map_err(|e| ReceiverError::SendToRouter(self.name.clone(), e))
                 .log_error()
+                .is_none()
             {
-                if self
-                    .msg_tx
-                    .send(msg)
-                    .await
-                    .map_err(|e| ReceiverError::SendToRouter(self.name.clone(), e))
-                    .log_error()
-                    .is_none()
-                {
-                    // If the router is gone, we should stop receiving messages
-                    return;
-                }
+                // If the router is gone, we should stop receiving messages
+                return;
             }
         }
     }
 
     fn validate_and_update_db(&self, msg: &mavlink::Message, addr: std::net::SocketAddr) {
-        if msg.routing_info.sender.is_valid_sender() {
-            self.discovered_targets
-                .insert_or_update(msg.routing_info.sender, addr);
-        } else {
+        if !msg.routing_info.sender.is_valid_sender() {
             error!(
                 "[{}] Received message from '{}' with invalid sender id: {}",
                 self.name, addr, msg.routing_info.sender
             );
+            return;
         }
+
+        self.discovered_targets
+            .insert_or_update(msg.routing_info.sender, addr);
     }
 }

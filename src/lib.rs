@@ -1,6 +1,7 @@
 use anyhow::Result;
 use log::info;
 use std::sync::Arc;
+use tokio::sync::broadcast;
 
 use endpoint::{Endpoint, EndpointSettings};
 
@@ -8,44 +9,45 @@ pub mod config;
 mod endpoint;
 mod log_error;
 pub mod mavlink;
-mod router;
+// mod router;
 
 fn endpoints_from_settings(
     settings: Vec<EndpointSettings>,
-    router: &mut router::Router,
-    deserializer: Arc<mavlink::Deserializer>,
+    // router: &mut router::Router,
+    codec: mavlink::Codec,
 ) -> Result<Vec<Endpoint>> {
+    let (tx, _) = broadcast::channel(10000);
+
     settings
         .into_iter()
         .map(|settings| {
-            let (endpoint_tx, endpoint) =
-                Endpoint::from_settings(settings, router.tx(), deserializer.clone())?;
+            let endpoint = Endpoint::from_settings(settings, tx.clone(), codec.clone())?;
 
-            router.add_endpoint(endpoint_tx);
+            // router.add_endpoint(endpoint_tx);
             Ok(endpoint)
         })
         .collect()
 }
 
 pub struct MAVLinkShouter {
-    router: router::Router,
+    // router: router::Router,
     endpoints: Vec<Endpoint>,
 }
 
 impl MAVLinkShouter {
     pub fn new(settings: config::Settings) -> Result<Self> {
         // Load the message offsets from the XML definitions
-        let deserializer = mavlink::definitions::try_get_offsets_from_xml(settings.definitions)
+        let codec = mavlink::definitions::try_get_offsets_from_xml(settings.definitions)
             .inspect(|offsets| info!("Found {} targeted messages.", offsets.len()))
-            .map(mavlink::Deserializer::new)
-            .map(Arc::new)?;
+            .map(Arc::new)
+            .map(mavlink::Codec::new)?;
 
-        let mut router = router::Router::default();
+        // let mut router = router::Router::default();
 
         info!("Creating endpoints...");
-        let endpoints = endpoints_from_settings(settings.endpoints, &mut router, deserializer)?;
+        let endpoints = endpoints_from_settings(settings.endpoints, codec)?;
 
-        Ok(Self { router, endpoints })
+        Ok(Self { endpoints })
     }
 
     pub fn run(self) {
@@ -54,7 +56,7 @@ impl MAVLinkShouter {
             endpoint.start();
         }
 
-        info!("Starting router...");
-        self.router.start();
+        // info!("Starting router...");
+        // self.router.start();
     }
 }

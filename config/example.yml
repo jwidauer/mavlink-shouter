@@ -1,10 +1,26 @@
-definitions: mavlink/message_definitions/v1.0/all.xml
+definitions: mavlink/message_definitions/v1.0/ardupilotmega.xml
 endpoints:
-  - name: autopilot
+  - name: target0
     kind:
       Udp:
         address: 127.0.0.1:14550
-  - name: gcs
+  - name: receiver0
     kind: 
       Udp:
         address: 127.0.0.1:14551
+  - name: target1
+    kind:
+      Udp:
+        address: 127.0.0.1:14552
+  - name: receiver1
+    kind: 
+      Udp:
+        address: 127.0.0.1:14553
+  - name: target2
+    kind:
+      Udp:
+        address: 127.0.0.1:14554
+  - name: receiver2
+    kind: 
+      Udp:
+        address: 127.0.0.1:14555
