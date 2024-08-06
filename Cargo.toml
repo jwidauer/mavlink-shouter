@@ -12,7 +12,7 @@ clap = { version = "4.5.4", features = ["derive"] }
 config = "0.14.0"
 env_logger = "0.11.2"
 log = "0.4.20"
-parking_lot = "0.12.1"
+parking_lot = "0.12.3"
 quick-xml = "0.31.0"
 serde = { version = "1.0.204", features = ["serde_derive"] }
 thiserror = "1.0.62"
