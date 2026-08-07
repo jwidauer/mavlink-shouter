@@ -1,8 +1,8 @@
 use super::{target_database::TargetDatabase, transmitter, Name};
-use crate::{log_error::LogError, mavlink, router};
 use log::{debug, error};
-use std::sync::Arc;
-use tokio::sync::mpsc;
+use std::sync::{mpsc, Arc};
+
+use crate::{log_error::LogError, mavlink, types::*};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ReceiverError {
@@ -11,14 +11,14 @@ pub enum ReceiverError {
     #[error("[{0}] Failed to deserialize message")]
     Deserialization(Name, #[source] mavlink::DeserializationError),
     #[error("[{0}] Failed to send message to router")]
-    SendToRouter(Name, #[source] mpsc::error::SendError<mavlink::Message>),
+    SendToRouter(Name, #[source] mpsc::SendError<mavlink::Message>),
 }
 
 pub struct Receiver {
     name: Name,
     receiver: transmitter::Receiver,
     discovered_targets: Arc<TargetDatabase>,
-    msg_tx: router::RouterTx,
+    msg_tx: RouterTx,
     deserializer: Arc<mavlink::Deserializer>,
 }
 
@@ -27,7 +27,7 @@ impl Receiver {
         name: Name,
         receiver: transmitter::Receiver,
         discovered_targets: Arc<TargetDatabase>,
-        msg_tx: router::RouterTx,
+        msg_tx: RouterTx,
         deserializer: Arc<mavlink::Deserializer>,
     ) -> Self {
         Self {
@@ -48,8 +48,8 @@ impl Receiver {
             .map_err(|e| ReceiverError::Deserialization(self.name.clone(), e))
     }
 
-    pub async fn run(&mut self) {
-        while let Some(data) = self.receiver.recv().await {
+    pub fn run(&mut self) {
+        while let Ok(data) = self.receiver.recv() {
             if let Some(msg) = data
                 .map_err(|e| ReceiverError::Receive(self.name.clone(), e))
                 .and_then(|data| self.deserialize(data))
@@ -58,7 +58,6 @@ impl Receiver {
                 if self
                     .msg_tx
                     .send(msg)
-                    .await
                     .map_err(|e| ReceiverError::SendToRouter(self.name.clone(), e))
                     .log_error()
                     .is_none()

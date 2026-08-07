@@ -9,6 +9,7 @@ mod endpoint;
 mod log_error;
 pub mod mavlink;
 mod router;
+pub mod types;
 
 fn endpoints_from_settings(
     settings: Vec<EndpointSettings>,

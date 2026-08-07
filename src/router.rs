@@ -1,33 +1,33 @@
 use crate::{log_error::LogError, mavlink};
-use tokio::sync::mpsc;
+use std::sync::mpsc;
 
-pub type RouterTx = mpsc::Sender<mavlink::Message>;
+use crate::types::*;
 
 pub struct Router {
     msg_tx: RouterTx,
-    msg_rx: mpsc::Receiver<mavlink::Message>,
-    endpoints_tx: Vec<mpsc::Sender<mavlink::Message>>,
+    msg_rx: RouterRx,
+    endpoints_tx: Vec<mpsc::SyncSender<mavlink::Message>>,
 }
 
 impl Router {
-    pub fn tx(&self) -> mpsc::Sender<mavlink::Message> {
+    pub fn tx(&self) -> RouterTx {
         self.msg_tx.clone()
     }
 
-    pub fn add_endpoint(&mut self, tx: mpsc::Sender<mavlink::Message>) {
+    pub fn add_endpoint(&mut self, tx: EndpointTx) {
         self.endpoints_tx.push(tx);
     }
 
     pub fn start(mut self) {
-        tokio::spawn(async move {
-            self.route().await;
+        std::thread::spawn(move || {
+            self.route();
         });
     }
 
-    async fn route(&mut self) {
-        while let Some(msg) = self.msg_rx.recv().await {
+    fn route(&mut self) {
+        while let Ok(msg) = self.msg_rx.recv() {
             for tx in &self.endpoints_tx {
-                tx.send(msg.clone()).await.log_error();
+                tx.send(msg.clone()).log_error();
             }
         }
     }
@@ -36,7 +36,7 @@ impl Router {
 impl Default for Router {
     fn default() -> Self {
         // Create a channel for sending messages to the router
-        let (msg_tx, msg_rx) = mpsc::channel(128);
+        let (msg_tx, msg_rx) = mpsc::sync_channel(128);
 
         Self {
             msg_tx,

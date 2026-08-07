@@ -1,6 +1,8 @@
 use log::info;
-use std::{net::SocketAddr, sync::Arc};
-use tokio::sync::mpsc;
+use std::{
+    net::SocketAddr,
+    sync::{mpsc, Arc},
+};
 
 pub mod tcp;
 pub mod udp;
